@@ -1,0 +1,29 @@
+{
+    "name": "FMDataClient",
+    "keywords": "filemaker, data, api, cloud, rest",
+    "description": "Filemaker 17 DATA API Client, Supports login, logout and create record",
+    "repository":
+    {
+      "type": "git",
+      "url": "https://github.com/milesburton/Arduino-Temperature-Control-Library.git"
+    },
+    "authors":
+    [
+      {
+        "name": "Bruno Silva",
+        "email": "bruno.silva@drm.ch",
+        "url": "https://drm.ch",
+        "maintainer": true
+      }
+    ],
+    "dependencies": [
+      {
+        "name": "ArduinoJson",
+        "frameworks": "arduino"
+      }
+    ],
+    "version": "0.0.1",
+    "frameworks": "arduino",
+    "platforms": "*"
+  }
+  
