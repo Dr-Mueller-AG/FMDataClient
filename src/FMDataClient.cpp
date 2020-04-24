@@ -148,9 +148,26 @@ RecordField::RecordField(String fieldName, String fieldValue, FieldTypes fieldTy
   this->fieldName = fieldName;
   this->fieldType = fieldType;
   this->fieldValue = fieldValue;
-  this->size = fieldValue.length() + fieldName.length() + 1;
 }
 
+RecordField::RecordField(String fieldName, float fieldValue)
+{
+  this->fieldName = fieldName;
+  this->fieldType = FieldTypes::Number;
+  this->fieldValue = String(fieldValue);
+}
+
+size_t RecordField::getSize()
+{
+  return this->fieldValue.length() + this->fieldName.length() + 1;
+}
+
+RecordField::RecordField(String fieldName, int fieldValue)
+{
+  this->fieldName = fieldName;
+  this->fieldType = FieldTypes::Number;
+  this->fieldValue = String(fieldValue);
+}
 String OAuthUserCredentials::getAuthorizationHeaderValue(void) const
 {
   throw ERROR_MSG_NOT_IMPLEMENTED;
@@ -234,7 +251,11 @@ String FMDataClient::logOutDatabaseSession(void)
   }
   return EMPTY_STRING;
 }
-
+/**
+   * @brief Get the list of supported OAuth providers and tracking Id
+   * @see https://fmhelp.filemaker.com/docs/17/en/dataapi/#connect-database_log-in-oauth
+   * @return String Filemaker response
+   */
 String FMDataClient::getListOfOAuthProviders(void)
 {
   try
@@ -298,26 +319,22 @@ String FMDataClient::getOAuthRequestId(String trackingId, String oauthProvider, 
 }
 
 /**
- * @brief 
- * 
- * @param token 
- * @param database 
- * @param layout 
- * @param fields 
- * @return String 
- */
+   * @brief Create a record
+   * @see https://fmhelp.filemaker.com/docs/17/en/dataapi/#work-with-records_create-record
+   * @param token The Authentication Token
+   * @param database Database Name
+   * @param layout Layout Name
+   * @param fields List of fields with values
+   * @return String Json with result or empty string when it fails
+   */
 String FMDataClient::createRecord(String token, String database, String layout, vector<RecordField> fields)
 {
-  if (token == EMPTY_STRING)
-  {
-    log_e("Error token is empty");
-    return EMPTY_STRING;
-  }
+
   String url(stringf(URL_RECORD_NEW, database.c_str(), layout.c_str()));
   log_d("Url: %s", url.c_str());
   String payload = generateCreatePayload(fields);
   log_d("Payload: %s", payload.c_str());
-  String auth = generateAuth(this->_token.c_str());
+  String auth = generateAuth(token.c_str());
   log_d("Authorization: %s", auth.c_str());
 
   if (!this->_https.begin(
@@ -351,7 +368,26 @@ String FMDataClient::createRecord(String token, String database, String layout, 
   }
   return EMPTY_STRING;
 }
-
+/**
+   * @brief Create a Record object
+   * @see https://fmhelp.filemaker.com/docs/17/en/dataapi/#work-with-records_create-record
+   * @param database Database Name
+   * @param layout Layout Name
+   * @param fields List of fields with values
+   * @return String Json with result or empty string when it fails
+   */
+String FMDataClient::createRecord(String database, String layout, vector<RecordField> fields)
+{
+  if (this->_token == EMPTY_STRING)
+  {
+    log_e("Error token is empty");
+    return EMPTY_STRING;
+  }
+  else
+  {
+    return this->createRecord(this->_token, database, layout, fields);
+  }
+}
 String FMDataClient::generateAuth(const char *token)
 {
   String result = String(PARAMETER_BEARER) + String(token);
@@ -368,25 +404,127 @@ String FMDataClient::generateAuth(const char *token)
  * @param fields 
  * @return String 
  */
-String FMDataClient::editRecord(String token, String database, String layout, String recordId, RecordField *fields)
+String FMDataClient::editRecord(String token, String database, String layout, String recordId, vector<RecordField> fields)
 {
-  throw ERROR_MSG_NOT_IMPLEMENTED;
+  String url(stringf(URL_RECORD, database.c_str(), layout.c_str(), recordId.c_str()));
+  log_d("Url: %s", url.c_str());
+  String payload = generateCreatePayload(fields);
+  log_d("Payload: %s", payload.c_str());
+  String auth = generateAuth(token.c_str());
+  log_d("Authorization: %s", auth.c_str());
+
+  if (!this->_https.begin(
+          this->_client,
+          this->_host,
+          443,
+          url, true))
+  {
+    log_e("Could not connect to: %s", this->_host.c_str());
+    return EMPTY_STRING;
+  }
+  this->_https.setAuthorization(EMPTY_STRING);
+  this->_https.setUserAgent(HEADER_AGENT_VALUE);
+  this->_https.setReuse(false);
+  this->_https.addHeader(HEADER_AUTHORIZATION, auth.c_str());
+  this->_https.addHeader(HEADER_ACCEPT, HEADER_ACCEPT_VALUE_ALL);
+  this->_https.addHeader(HEADER_CACHE_CONTROL, HEADER_CACHE_CONTROL_VALUE_NO_CACHE);
+  this->_https.addHeader(HEADER_CONTENT_TYPE, MIME_TYPE_APPLICATION_JSON);
+  int httpCode = this->_https.PATCH(payload);
+  const String &response = this->_https.getString();
+  log_d("Response: %s", response.c_str());
+  this->_https.end();
+  if (httpCode == HTTP_CODE_OK)
+  {
+    log_d("Successfull request - Status: %d", httpCode);
+    return response;
+  }
+  else
+  {
+    log_e("Http error: %d - %s", httpCode, this->_https.errorToString(httpCode));
+  }
+  return EMPTY_STRING;
 }
 
+String FMDataClient::editRecord(String database, String layout, String recordId, vector<RecordField> fields)
+{
+  if (this->_token == EMPTY_STRING)
+  {
+    log_e("Error token is empty");
+    return EMPTY_STRING;
+  }
+  else
+  {
+    return this->editRecord(this->_token, database, layout, recordId, fields);
+  }
+}
 /**
- * @brief 
- * 
- * @param token 
- * @param database 
- * @param layout 
- * @param recordId 
- * @return boolean 
- */
+   * @brief Delete a record
+   * @see https://fmhelp.filemaker.com/docs/17/en/dataapi/#work-with-records_delete-record
+   * @param token 
+   * @param database 
+   * @param layout 
+   * @param recordId 
+   * @return boolean 
+   */
 boolean FMDataClient::deleteRecord(String token, String database, String layout, String recordId)
 {
-  throw ERROR_MSG_NOT_IMPLEMENTED;
-}
+  String url(stringf(URL_RECORD, database.c_str(), layout.c_str(), recordId.c_str()));
+  log_d("Url: %s", url.c_str());
+  String payload(EMPTY_STRING);
+  log_d("Payload: %s", payload.c_str());
+  String auth = generateAuth(token.c_str());
+  log_d("Authorization: %s", auth.c_str());
 
+  if (!this->_https.begin(
+          this->_client,
+          this->_host,
+          443,
+          url, true))
+  {
+    log_e("Could not connect to: %s", this->_host.c_str());
+    return EMPTY_STRING;
+  }
+  this->_https.setAuthorization(EMPTY_STRING);
+  this->_https.setUserAgent(HEADER_AGENT_VALUE);
+  this->_https.setReuse(false);
+  this->_https.addHeader(HEADER_AUTHORIZATION, auth.c_str());
+  this->_https.addHeader(HEADER_ACCEPT, HEADER_ACCEPT_VALUE_ALL);
+  this->_https.addHeader(HEADER_CACHE_CONTROL, HEADER_CACHE_CONTROL_VALUE_NO_CACHE);
+  int httpCode = this->_https.sendRequest(HTTP_METHOD_DELETE, payload);
+  const String &response = this->_https.getString();
+  log_d("Response: %s", response.c_str());
+  this->_https.end();
+  if (httpCode == HTTP_CODE_OK)
+  {
+    log_d("Successfull request - Status: %d", httpCode);
+    return response;
+  }
+  else
+  {
+    log_e("Http error: %d - %s", httpCode, this->_https.errorToString(httpCode));
+  }
+  return EMPTY_STRING;
+}
+/**
+   * @brief Delete a record
+   * @see https://fmhelp.filemaker.com/docs/17/en/dataapi/#work-with-records_delete-record
+   * @param database 
+   * @param layout 
+   * @param recordId 
+   * @return boolean 
+   */
+boolean FMDataClient::deleteRecord(String database, String layout, String recordId)
+{
+  if (this->_token == EMPTY_STRING)
+  {
+    log_e("Error token is empty");
+    return EMPTY_STRING;
+  }
+  else
+  {
+    return this->deleteRecord(this->_token, database, layout, recordId);
+  }
+}
 /**
  * @brief 
  * 
@@ -403,10 +541,13 @@ String FMDataClient::getRecord(String token, String database, String layout, Str
 }
 
 /**
- * @brief 
- * @see 
- * @return String 
- */
+   * @brief Log in to a database session
+   *  
+   * @see https://fmhelp.filemaker.com/docs/17/en/dataapi/#connect-database_log-in
+   * @see https://fmhelp.filemaker.com/docs/17/en/dataapi/#connect-database_log-in-eds
+   * @see https://fmhelp.filemaker.com/docs/17/en/dataapi/#connect-database_log-in-oauth
+   * @return String Filemaker response
+   */
 String FMDataClient::logInToDatabaseSession(void)
 {
   this->_client.stop();
@@ -479,7 +620,15 @@ String FMDataClient::logInToDatabaseSession(void)
   }
   return EMPTY_STRING;
 }
-
+/**
+  * @brief Construct a new FMDataClient object
+  * 
+  * @param client Wifi Client
+  * @param credentials Database Credentials
+  * @param host Host address, ip address or domain name
+  * @param cert Root Certificate
+  * @param port Connection Port
+  */
 FMDataClient::FMDataClient(
     const WiFiClientSecure &client,
     const DatabaseCredentials &credentials,
@@ -494,7 +643,10 @@ FMDataClient::FMDataClient(
   this->_port = port;
   this->_client.setCACert(cert);
 };
-
+/**
+   * @brief Destroy the FMDataClient object
+   * 
+   */
 FMDataClient::~FMDataClient(void)
 {
   delete[] & _https;
@@ -531,22 +683,85 @@ String FMDataClient::getRecords(String token, String database, String layout, So
   throw ERROR_MSG_NOT_IMPLEMENTED;
 }
 
-/**
- * @brief 
- * 
- * @param token 
- * @param database 
- * @param layout 
- * @param recordId 
- * @param fieldName 
- * @param repetition 
- * @return String 
- */
+ /**
+   * @brief Upload container data
+   * @see https://fmhelp.filemaker.com/docs/17/en/dataapi/#upload-container-data
+   * @param token Authentication Token
+   * @param database Database Name
+   * @param layout Layout Name
+   * @param recordId Record Identifier
+   * @param fieldName Field Name
+   * @param repetition Field Repetition index
+   * @return String Json with result response or empty in case of error
+   */
 String FMDataClient::uploadContainerData(String token, String database, String layout, String recordId, String fieldName, int repetition)
 {
-  throw ERROR_MSG_NOT_IMPLEMENTED;
-}
+  String url(stringf(
+      URL_CONTAINER,
+      database.c_str(),
+      layout.c_str(),
+      recordId.c_str(),
+      fieldName.c_str(),
+      String(repetition).c_str()));
+  log_d("Url: %s", url.c_str());
+  String payload = EMPTY_STRING;
+  log_d("Payload: %s", payload.c_str());
+  String auth = generateAuth(this->_token.c_str());
+  log_d("Authorization: %s", auth.c_str());
 
+  if (!this->_https.begin(
+          this->_client,
+          this->_host,
+          443,
+          url, true))
+  {
+    log_e("Could not connect to: %s", this->_host.c_str());
+    return EMPTY_STRING;
+  }
+  this->_https.setAuthorization(EMPTY_STRING);
+  this->_https.setUserAgent(HEADER_AGENT_VALUE);
+  this->_https.setReuse(false);
+  this->_https.addHeader(HEADER_AUTHORIZATION, auth.c_str());
+  this->_https.addHeader(HEADER_ACCEPT, HEADER_ACCEPT_VALUE_ALL);
+  this->_https.addHeader(HEADER_CACHE_CONTROL, HEADER_CACHE_CONTROL_VALUE_NO_CACHE);
+  this->_https.addHeader(HEADER_CONTENT_TYPE, MIME_TYPE_MULTIPART_FORM_DATA);
+  int httpCode = this->_https.POST(payload);
+  const String &response = this->_https.getString();
+  log_d("Response: %s", response.c_str());
+  this->_https.end();
+  if (httpCode == HTTP_CODE_OK)
+  {
+    log_d("Successfull request - Status: %d", httpCode);
+    return response;
+  }
+  else
+  {
+    log_e("Http error: %d - %s", httpCode, this->_https.errorToString(httpCode));
+  }
+  return EMPTY_STRING;
+}
+/**
+   * @brief Upload container data
+   * @see https://fmhelp.filemaker.com/docs/17/en/dataapi/#upload-container-data
+   * @param database Database Name
+   * @param layout Layout Name
+   * @param recordId Record Identifier
+   * @param fieldName Field Name
+   * @param repetition Field Repetition index
+   * @return String Json with result response or empty in case of error
+   */
+String FMDataClient::uploadContainerData(String database, String layout, String recordId, String fieldName, int repetition)
+{
+  if (this->_token == EMPTY_STRING)
+  {
+    log_e("Error token is empty");
+    return EMPTY_STRING;
+  }
+  else
+  {
+    return this->uploadContainerData(this->_token, database, layout, recordId, fieldName, repetition);
+  }
+}
 /**
  * @brief 
  * 
@@ -611,7 +826,7 @@ String FMDataClient::generateCreatePayload(vector<RecordField> fields)
   String result = EMPTY_STRING;
   size_t numChars = 0;
   for (auto field : fields)
-    numChars += field.size;
+    numChars += field.getSize();
   size_t numFields = fields.size() + 1;
   size_t size = JSON_OBJECT_SIZE(1) + JSON_OBJECT_SIZE(numFields) +
                 numFields * 16 + numChars;
