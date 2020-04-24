@@ -36,9 +36,9 @@
 #define HEADER_CONTENT_LENGTH_EMPTY "0"
 
 #define HTTP_METHOD_DELETE "DELETE"
-
+#define HTTP_BOUNDARY
 #define MIME_TYPE_APPLICATION_JSON "application/json; charset=utf-8"
-#define MIME_TYPE_MULTIPART_FORM_DATA "multipart/form-data"
+#define MIME_TYPE_MULTIPART_FORM_DATA "multipart/form-data; boundary="
 
 #define URL_FULL "https://%s:%d%s"
 #define URL_DATA_API_BASE_V1 "/fmi/data/v1/databases/"
@@ -235,11 +235,13 @@ class RecordField
 {
 public:
   RecordField(String fieldName, String fieldValue = "", FieldTypes fieldType = FieldTypes::Text);
+  RecordField(String fieldName, int fieldValue);
+  RecordField(String fieldName, float fieldValue);
   String fieldName;
   String fieldValue;
   FieldTypes fieldType;
   String toJSON(void) const;
-  size_t size;
+  size_t getSize();
 };
 
 class ScriptParameters
@@ -260,14 +262,14 @@ class FMDataClient
 {
 public:
   /**
- * @brief Construct a new FMDataClient object
- * 
- * @param client Http client
- * @param credentials 
- * @param host 
- * @param cert 
- * @param port 
- */
+   * @brief Construct a new FMDataClient object
+   * 
+   * @param client Wifi Client
+   * @param credentials Database Credentials
+   * @param host Host address, ip address or domain name
+   * @param cert Root Certificate
+   * @param port Connection Port
+   */
   FMDataClient(
       const WiFiClientSecure &client,
       const DatabaseCredentials &credentials,
@@ -275,9 +277,9 @@ public:
       const char *&cert,
       const int &port);
   /**
-       * @brief Destroy the FMDataClient object
-       * 
-       */
+   * @brief Destroy the FMDataClient object
+   * 
+   */
   ~FMDataClient();
 
   /**
@@ -321,22 +323,41 @@ public:
    * @param token The Authentication Token
    * @param database Database Name
    * @param layout Layout Name
-   * @param fields List of fields
-   * @return String 
+   * @param fields List of fields with values
+   * @return String Json with result or empty string when it fails
    */
   String createRecord(String token, String database, String layout, vector<RecordField> fields);
+  /**
+   * @brief Create a Record object
+   * @see https://fmhelp.filemaker.com/docs/17/en/dataapi/#work-with-records_create-record
+   * @param database Database Name
+   * @param layout Layout Name
+   * @param fields List of fields with values
+   * @return String Json with result or empty string when it fails
+   */
+  String createRecord(String database, String layout, vector<RecordField> fields);
 
   /**
    * @brief Edit a record
    * @see https://fmhelp.filemaker.com/docs/17/en/dataapi/#work-with-records_edit-record
-   * @param token 
-   * @param database 
-   * @param layout 
-   * @param recordId 
-   * @param fields 
-   * @return String 
+   * @param token The Authentication Token
+   * @param database Database Name
+   * @param layout Layout Name
+   * @param recordId  Record Identifier
+   * @param fields List of fields with values
+   * @return String Json with result or empty string when it fails
    */
-  String editRecord(String token, String database, String layout, String recordId, RecordField *fields = NULL);
+  String editRecord(String token, String database, String layout, String recordId, vector<RecordField> fields);
+  /**
+   * @brief Edit a record
+   * @see https://fmhelp.filemaker.com/docs/17/en/dataapi/#work-with-records_edit-record
+   * @param database Database Name
+   * @param layout Layout Name
+   * @param recordId  Record Identifier
+   * @param fields List of fields with values
+   * @return String Json with result or empty string when it fails
+   */
+  String editRecord(String database, String layout, String recordId, vector<RecordField> fields);
 
   /**
    * @brief Delete a record
@@ -348,6 +369,15 @@ public:
    * @return boolean 
    */
   boolean deleteRecord(String token, String database, String layout, String recordId);
+  /**
+   * @brief Delete a record
+   * @see https://fmhelp.filemaker.com/docs/17/en/dataapi/#work-with-records_delete-record
+   * @param database 
+   * @param layout 
+   * @param recordId 
+   * @return boolean 
+   */
+  boolean deleteRecord(String database, String layout, String recordId);
 
   /**
    * @brief Get a single record
@@ -387,15 +417,27 @@ public:
   /**
    * @brief Upload container data
    * @see https://fmhelp.filemaker.com/docs/17/en/dataapi/#upload-container-data
-   * @param token 
-   * @param database 
-   * @param layout 
-   * @param recordId 
-   * @param fieldName 
-   * @param repetition 
-   * @return String 
+   * @param token Authentication Token
+   * @param database Database Name
+   * @param layout Layout Name
+   * @param recordId Record Identifier
+   * @param fieldName Field Name
+   * @param repetition Field Repetition index
+   * @return String Json with result response or empty in case of error
    */
   String uploadContainerData(String token, String database, String layout, String recordId, String fieldName, int repetition = 1);
+
+  /**
+   * @brief Upload container data
+   * @see https://fmhelp.filemaker.com/docs/17/en/dataapi/#upload-container-data
+   * @param database Database Name
+   * @param layout Layout Name
+   * @param recordId Record Identifier
+   * @param fieldName Field Name
+   * @param repetition Field Repetition index
+   * @return String Json with result response or empty in case of error
+   */
+  String uploadContainerData(String database, String layout, String recordId, String fieldName, int repetition = 1);
 
   /**
    * @brief Perform a find request
