@@ -831,7 +831,7 @@ String FMDataClient::uploadContainerData(String token, String database, String l
   /*
 POST /fmi/data/v1/databases/drm_iot/layouts/iot_tab2/records/1/containers/container/1 HTTP/1.1
 Host: drm.fmi.filemaker-cloud.com
-Authorization: Bearer e58665b54aff04433157cf8f3950440baf332cfd72264fd4e632
+Authorization: Bearer e58...
 Content-Type: multipart/form-data; boundary=----WebKitFormBoundary7MA4YWxkTrZu0gW
 
 ----WebKitFormBoundary7MA4YWxkTrZu0gW
