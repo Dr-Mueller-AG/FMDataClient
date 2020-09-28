@@ -162,6 +162,108 @@ size_t RecordField::getSize()
   return this->fieldValue.length() + this->fieldName.length() + 1;
 }
 
+/**
+ * @brief Construct a new Script Parameters object
+ * 
+ * @param name Script name
+ * @param parameter Script parameters
+ * @param preRequestScriptName Prerequest script name
+ * @param preRequestScriptParameter Prerequest script parameters
+ * @param preSortScriptName Presort script name
+ * @param preSortScriptParameter Presort script parameter
+ */
+ScriptParameters::ScriptParameters(String name, String parameter,
+                                   String preRequestScriptName, String preRequestScriptParameter,
+                                   String preSortScriptName, String preSortScriptParameter)
+{
+  this->_name = name;
+  log_d("                      Script: %s", this->_name.c_str());
+  this->_parameter = parameter;
+  log_d("            Script Parameter: %s", this->_parameter.c_str());
+  this->_preRequestScriptName = preRequestScriptName;
+  log_d("          Pre Request Script: %s", this->_preRequestScriptName.c_str());
+  this->_preRequestScriptParameter = preRequestScriptParameter;
+  log_d("Pre Request Script Parameter: %s", this->_preRequestScriptParameter.c_str());
+  this->_preSortScriptName = preSortScriptName;
+  log_d("             Pre Sort Script: %s", this->_preSortScriptName.c_str());
+  this->_preSortScriptParameter = preSortScriptParameter;
+  log_d("   Pre Sort Script Parameter: %s", this->_preSortScriptParameter.c_str());
+}
+
+/**
+ * @brief Generates de script parameters for POST and PATCH requests
+ * 
+ * @return JsonDocument 
+ */
+JsonDocument ScriptParameters::toJSONDocument(void) const
+{
+  String result(EMPTY_STRING);
+  const size_t capacity = JSON_OBJECT_SIZE(6) + 160 + this->_name.length() + this->_parameter.length() + this->_preRequestScriptName.length() + this->_preRequestScriptParameter.length() + this->_preSortScriptName.length() + this->_preSortScriptParameter.length();
+  DynamicJsonDocument doc(capacity);
+  if (!this->_name.isEmpty())
+  {
+    doc[PARAMETER_SCRIPT_NAME] = this->_name;
+  }
+  if (!this->_parameter.isEmpty())
+  {
+    doc[PARAMETER_SCRIPT_PARAMETER] = this->_parameter;
+  }
+
+  if (!this->_preRequestScriptName.isEmpty())
+  {
+    doc[PARAMETER_SCRIPT_PRE_REQUEST_NAME] = this->_preRequestScriptName;
+  }
+  if (!this->_preRequestScriptParameter.isEmpty())
+  {
+    doc[PARAMETER_SCRIPT_PRE_REQUEST_PARAMETER] = this->_preRequestScriptParameter;
+  }
+  if (!this->_preSortScriptName.isEmpty())
+  {
+    doc[PARAMETER_SCRIPT_PRE_SORT_NAME] = this->_preSortScriptName;
+  }
+  if (!this->_preSortScriptParameter.isEmpty())
+  {
+    doc[PARAMETER_SCRIPT_PRE_SORT_PARAMETER] = this->_preSortScriptParameter;
+  }
+  serializeJson(doc, result);
+  log_d("Json: %s", result.c_str());
+  return doc;
+}
+
+/**
+ * @brief Generates de script parameters for POST and PATCH requests
+ * 
+ * @return String 
+ */
+String ScriptParameters::toJSONString(void) const
+{
+  String result(EMPTY_STRING);
+  serializeJson(this->toJSONDocument(), result);
+  return result;
+}
+
+/**
+ * @brief Generates de script parameters for GET and DELETE requests
+ * 
+ * @return String 
+ */
+String ScriptParameters::toQueryString(void) const
+{
+  String result = this->toJSONString();
+
+  result.replace("{", "");
+  result.replace("}", "");
+  result.replace(":", "=");
+  result.replace("\"", "");
+  result.replace(",", "&");
+
+  if (!result.isEmpty())
+  {
+    result = "?" + result;
+  }
+  return result;
+}
+
 RecordField::RecordField(String fieldName, int fieldValue)
 {
   this->fieldName = fieldName;
@@ -325,14 +427,15 @@ String FMDataClient::getOAuthRequestId(String trackingId, String oauthProvider, 
    * @param database Database Name
    * @param layout Layout Name
    * @param fields List of fields with values
+   * @param scripts Scripts to be executed
    * @return String Json with result or empty string when it fails
    */
-String FMDataClient::createRecord(String token, String database, String layout, vector<RecordField> fields)
+String FMDataClient::createRecord(String token, String database, String layout, vector<RecordField> fields, ScriptParameters *scripts)
 {
 
   String url(stringf(URL_RECORD_NEW, database.c_str(), layout.c_str()));
   log_d("Url: %s", url.c_str());
-  String payload = generateCreatePayload(fields);
+  String payload = generatePayload(fields, scripts);
   log_d("Payload: %s", payload.c_str());
   String auth = generateAuth(token.c_str());
   log_d("Authorization: %s", auth.c_str());
@@ -374,9 +477,10 @@ String FMDataClient::createRecord(String token, String database, String layout, 
    * @param database Database Name
    * @param layout Layout Name
    * @param fields List of fields with values
+   * @param scripts Scripts to be executed
    * @return String Json with result or empty string when it fails
    */
-String FMDataClient::createRecord(String database, String layout, vector<RecordField> fields)
+String FMDataClient::createRecord(String database, String layout, vector<RecordField> fields, ScriptParameters *scripts)
 {
   if (this->_token == EMPTY_STRING)
   {
@@ -385,7 +489,7 @@ String FMDataClient::createRecord(String database, String layout, vector<RecordF
   }
   else
   {
-    return this->createRecord(this->_token, database, layout, fields);
+    return this->createRecord(this->_token, database, layout, fields, scripts);
   }
 }
 String FMDataClient::generateAuth(const char *token)
@@ -408,7 +512,7 @@ String FMDataClient::editRecord(String token, String database, String layout, St
 {
   String url(stringf(URL_RECORD, database.c_str(), layout.c_str(), recordId.c_str()));
   log_d("Url: %s", url.c_str());
-  String payload = generateCreatePayload(fields);
+  String payload = generatePayload(fields);
   log_d("Payload: %s", payload.c_str());
   String auth = generateAuth(token.c_str());
   log_d("Authorization: %s", auth.c_str());
@@ -533,9 +637,10 @@ boolean FMDataClient::deleteRecord(String database, String layout, String record
  * @param layout 
  * @param recordId 
  * @param ranges 
+ * @param scripts
  * @return String 
  */
-String FMDataClient::getRecord(String token, String database, String layout, String recordId, PortalRecordRange *ranges)
+String FMDataClient::getRecord(String token, String database, String layout, String recordId, PortalRecordRange *ranges, ScriptParameters *scripts)
 {
   throw ERROR_MSG_NOT_IMPLEMENTED;
 }
@@ -620,6 +725,7 @@ String FMDataClient::logInToDatabaseSession(void)
   }
   return EMPTY_STRING;
 }
+
 /**
   * @brief Construct a new FMDataClient object
   * 
@@ -642,7 +748,12 @@ FMDataClient::FMDataClient(
   this->_cert = cert;
   this->_port = port;
   this->_client.setCACert(cert);
+  uint8_t uuid[16];
+  ESPRandom::uuid(uuid);
+  this->_id = ESPRandom::uuidToString(uuid);
+  log_d("Random Id: %s", this->_id.c_str());
 };
+
 /**
    * @brief Destroy the FMDataClient object
    * 
@@ -652,6 +763,24 @@ FMDataClient::~FMDataClient(void)
   delete[] & _https;
   delete[] & _client;
   delete[] _credentials;
+}
+
+/**
+ * @brief Combines two jsons, if key already exists it will be overrided
+ * @see https://arduinojson.org/v6/how-to/merge-json-objects/
+ * 
+ * @param dst destination json
+ * @param src source json
+ */
+void FMDataClient::mergeJson(JsonObject dst, JsonObject src)
+{
+  String finalJson(EMPTY_STRING);
+  for (auto kvp : src)
+  {
+    dst[kvp.key()] = kvp.value();
+  }
+  serializeJson(dst, finalJson);
+  log_d("Merged JSON: %s", finalJson.c_str());
 }
 
 /**
@@ -683,7 +812,7 @@ String FMDataClient::getRecords(String token, String database, String layout, So
   throw ERROR_MSG_NOT_IMPLEMENTED;
 }
 
- /**
+/**
    * @brief Upload container data
    * @see https://fmhelp.filemaker.com/docs/17/en/dataapi/#upload-container-data
    * @param token Authentication Token
@@ -692,10 +821,28 @@ String FMDataClient::getRecords(String token, String database, String layout, So
    * @param recordId Record Identifier
    * @param fieldName Field Name
    * @param repetition Field Repetition index
+   * @param contents Stream
+   * @param name Name
+   * @param type Content type
    * @return String Json with result response or empty in case of error
    */
-String FMDataClient::uploadContainerData(String token, String database, String layout, String recordId, String fieldName, int repetition)
+String FMDataClient::uploadContainerData(String token, String database, String layout, String recordId, String fieldName, int repetition, String contents, String name, String type)
 {
+  /*
+POST /fmi/data/v1/databases/drm_iot/layouts/iot_tab2/records/1/containers/container/1 HTTP/1.1
+Host: drm.fmi.filemaker-cloud.com
+Authorization: Bearer e58665b54aff04433157cf8f3950440baf332cfd72264fd4e632
+Content-Type: multipart/form-data; boundary=----WebKitFormBoundary7MA4YWxkTrZu0gW
+
+----WebKitFormBoundary7MA4YWxkTrZu0gW
+Content-Disposition: form-data; name="upload"; filename="test.txt"
+Content-Type: text/plain
+
+(data)
+----WebKitFormBoundary7MA4YWxkTrZu0gW
+
+*/
+
   String url(stringf(
       URL_CONTAINER,
       database.c_str(),
@@ -704,8 +851,174 @@ String FMDataClient::uploadContainerData(String token, String database, String l
       fieldName.c_str(),
       String(repetition).c_str()));
   log_d("Url: %s", url.c_str());
-  String payload = EMPTY_STRING;
+
+  String auth = generateAuth(this->_token.c_str());
+  log_d("Authorization: %s", auth.c_str());
+  String boundary = HTTP_BOUNDARY;
+  boundary.concat(this->_id);
+  log_d("Boundary: %s", boundary.c_str());
+
+  if (!this->_https.begin(
+          this->_client,
+          this->_host,
+          443,
+          url, true))
+  {
+    log_e("Could not connect to: %s", this->_host.c_str());
+    return EMPTY_STRING;
+  }
+  this->_https.setAuthorization(EMPTY_STRING);
+  this->_https.setUserAgent(HEADER_AGENT_VALUE);
+  this->_https.setReuse(false);
+  this->_https.addHeader(HEADER_AUTHORIZATION, auth.c_str());
+  this->_https.addHeader(HEADER_ACCEPT, HEADER_ACCEPT_VALUE_ALL);
+  this->_https.addHeader(HEADER_CACHE_CONTROL, HEADER_CACHE_CONTROL_VALUE_NO_CACHE);
+  String multiPartType = String(MIME_TYPE_MULTIPART_FORM_DATA);
+  multiPartType += boundary;
+  this->_https.addHeader(HEADER_CONTENT_TYPE, multiPartType);
+  StreamString payload;
+  payload.printf("%s\r\n", boundary.c_str());
+  payload.printf("%s: ", HEADER_CONTENT_DISPOSITION);
+  payload.printf(FORM_DATA_DISPOSITION, name.c_str());
+  payload.printf("\r\n");
+  payload.printf(HEADER_GENERIC, HEADER_CONTENT_TYPE, type.c_str());
+  payload.printf("\r\n");
+  payload.printf("\r\n");
+  payload.printf("%s\r\n", contents.c_str());
+  payload.printf("%s\r\n", boundary.c_str());
   log_d("Payload: %s", payload.c_str());
+  int httpCode = this->_https.POST(payload.readString());
+  const String &response = this->_https.getString();
+  log_d("Response: %s", response.c_str());
+  this->_https.end();
+  if (httpCode == HTTP_CODE_OK)
+  {
+    log_d("Successfull request - Status: %d", httpCode);
+    return response;
+  }
+  else
+  {
+    log_e("Http error: %d - %s", httpCode, this->_https.errorToString(httpCode));
+  }
+  return EMPTY_STRING;
+}
+
+/**
+   * @brief Upload container data
+   * @see https://fmhelp.filemaker.com/docs/17/en/dataapi/#upload-container-data
+   * @param database Database Name
+   * @param layout Layout Name
+   * @param recordId Record Identifier
+   * @param fieldName Field Name
+   * @param repetition Field Repetition index
+   * @param contents Contents
+   * @param name File name
+   * @param type File mime type
+   * @return String Json with result response or empty in case of error
+   */
+String FMDataClient::uploadContainerData(String database, String layout, String recordId, String fieldName, int repetition, String contents, String name, String type)
+{
+  if (this->_token == EMPTY_STRING)
+  {
+    log_e("Error token is empty");
+    return EMPTY_STRING;
+  }
+  else
+  {
+    return this->uploadContainerData(this->_token, database, layout, recordId, fieldName, repetition, contents, name, type);
+  }
+}
+
+RecordFindCriteria::RecordFindCriteria(String fieldName, String fieldValue)
+{
+  this->fieldName = fieldName;
+  this->fieldValue = fieldValue;
+}
+
+JsonObject RecordFindCriteria::toJSON(void)
+{
+  DynamicJsonDocument doc(200);
+  doc[this->fieldName] = this->fieldValue;
+  return doc.as<JsonObject>();
+}
+
+RecordSortCriteria::RecordSortCriteria(String fieldName, SortOrder order)
+{
+  this->fieldName = fieldName;
+  this->order = order;
+}
+
+JsonObject RecordSortCriteria::toJSON(void)
+{
+  DynamicJsonDocument doc(200);
+  doc[PARAMETER_FIELD_NAME] = this->fieldName;
+  doc[PARAMETER_SORT_ORDER] = this->order == SortOrder::ascend ? PARAMETER_SORT_ASCEND : PARAMETER_SORT_DESCEND;
+  return doc.as<JsonObject>();
+}
+
+SortCriteria::SortCriteria(const vector<RecordSortCriteria *> &records)
+{
+  this->records = records;
+}
+
+JsonObject SortCriteria::toJSON(void)
+{
+  const size_t capacity = JSON_ARRAY_SIZE(5) + JSON_OBJECT_SIZE(1) + 5 * JSON_OBJECT_SIZE(2);
+  DynamicJsonDocument doc(capacity);
+  JsonArray sort = doc.createNestedArray(PARAMETER_SORT);
+  for (auto record : this->records)
+  {
+    sort.add(record->toJSON());
+  }
+  String result;
+  serializeJsonPretty(doc,result);
+  log_d("Sort Payload: %s", result.c_str());
+  return doc.as<JsonObject>();
+}
+
+FindCriteria::FindCriteria(const vector<RecordFindCriteria *> &records, boolean omit)
+{
+  this->records = records;
+  this->omit = omit;
+}
+/**
+ * @brief 
+ */
+JsonObject FindCriteria::toJSON()
+{
+  StaticJsonDocument<200> doc;
+  for (auto record : records)
+  {
+    doc[record->fieldName] = record->fieldValue;
+  }
+  if (this->omit)
+  {
+    doc[PARAMETER_OMIT] = this->omit ? PARAMETER_OMIT_TRUE : PARAMETER_OMIT_FALSE;
+  }
+
+  return doc.as<JsonObject>();
+}
+
+/**
+ * @brief 
+ * 
+ * @param token 
+ * @param database 
+ * @param layout 
+ * @param findCriterias
+ * @param limit
+ * @param offset
+ * @param sortCriteria 
+ * @param scripts
+ * @return String 
+ */
+String FMDataClient::performFind(String token, String database, String layout, vector<FindCriteria *> findCriterias, int limit, int offset, SortCriteria *sortCriteria, ScriptParameters *scripts)
+{
+  String url(stringf(
+      URL_FIND,
+      database.c_str(),
+      layout.c_str()));
+  log_d("Url: %s", url.c_str());
   String auth = generateAuth(this->_token.c_str());
   log_d("Authorization: %s", auth.c_str());
 
@@ -724,7 +1037,8 @@ String FMDataClient::uploadContainerData(String token, String database, String l
   this->_https.addHeader(HEADER_AUTHORIZATION, auth.c_str());
   this->_https.addHeader(HEADER_ACCEPT, HEADER_ACCEPT_VALUE_ALL);
   this->_https.addHeader(HEADER_CACHE_CONTROL, HEADER_CACHE_CONTROL_VALUE_NO_CACHE);
-  this->_https.addHeader(HEADER_CONTENT_TYPE, MIME_TYPE_MULTIPART_FORM_DATA);
+  this->_https.addHeader(HEADER_CONTENT_TYPE, MIME_TYPE_APPLICATION_JSON);
+  String payload = this->generateFindPayload(findCriterias, limit, offset, sortCriteria, scripts);
   int httpCode = this->_https.POST(payload);
   const String &response = this->_https.getString();
   log_d("Response: %s", response.c_str());
@@ -741,40 +1055,42 @@ String FMDataClient::uploadContainerData(String token, String database, String l
   return EMPTY_STRING;
 }
 /**
-   * @brief Upload container data
-   * @see https://fmhelp.filemaker.com/docs/17/en/dataapi/#upload-container-data
-   * @param database Database Name
-   * @param layout Layout Name
-   * @param recordId Record Identifier
-   * @param fieldName Field Name
-   * @param repetition Field Repetition index
-   * @return String Json with result response or empty in case of error
+   * @brief Generates the find request payload, search criteria, sort criteria and script execution parameters
+   * @see performFind()
+   * @param findCriterias
+   * @param limit
+   * @param offset
+   * @param sortCriteria 
+   * @param scripts
+   * @return String 
    */
-String FMDataClient::uploadContainerData(String database, String layout, String recordId, String fieldName, int repetition)
+String FMDataClient::generateFindPayload(vector<FindCriteria *> findCriterias, int limit, int offset, SortCriteria *sortCriteria, ScriptParameters *scripts)
 {
-  if (this->_token == EMPTY_STRING)
+  const size_t capacity = 2 * JSON_ARRAY_SIZE(2) + JSON_ARRAY_SIZE(5) + JSON_OBJECT_SIZE(1) + 5 * JSON_OBJECT_SIZE(2) + JSON_OBJECT_SIZE(3) + JSON_OBJECT_SIZE(8);
+  DynamicJsonDocument doc(capacity);
+  JsonArray query = doc.createNestedArray("query");
+  for (auto findCriteria : findCriterias)
   {
-    log_e("Error token is empty");
-    return EMPTY_STRING;
+    query.add(findCriteria->toJSON());
   }
-  else
+  if (sortCriteria != NULL)
   {
-    return this->uploadContainerData(this->_token, database, layout, recordId, fieldName, repetition);
+    FMDataClient::mergeJson(doc.as<JsonObject>(), sortCriteria->toJSON());
   }
-}
-/**
- * @brief 
- * 
- * @param token 
- * @param database 
- * @param layout 
- * @param findCriteria 
- * @param sortCriteria 
- * @return String 
- */
-String FMDataClient::performFind(String token, String database, String layout, FindCriteria *findCriteria, SortCriteria *sortCriteria)
-{
-  throw ERROR_MSG_NOT_IMPLEMENTED;
+  if (scripts != NULL)
+  {
+    FMDataClient::mergeJson(doc.as<JsonObject>(), scripts->toJSONDocument().as<JsonObject>());
+  }
+  doc[PARAMETER_LIMIT] = String(limit);
+  if (offset > 0)
+  {
+    doc[PARAMETER_OFFSET] = String(offset);
+  }
+
+  String result = EMPTY_STRING;
+  serializeJson(doc, result);
+  log_d("Find payload: %s", result.c_str());
+  return result;
 }
 
 /**
@@ -820,16 +1136,22 @@ char *stringf(const char *format, ...)
 
   return buffer;
 }
-
-String FMDataClient::generateCreatePayload(vector<RecordField> fields)
+/**
+ * @brief Generated the payload to create new record
+ * 
+ * @param fields List of fields
+ * @param scripts Scripts to be executed
+ * @return String Filemaker response
+ */
+String FMDataClient::generatePayload(vector<RecordField> fields, ScriptParameters *scripts)
 {
   String result = EMPTY_STRING;
   size_t numChars = 0;
   for (auto field : fields)
     numChars += field.getSize();
   size_t numFields = fields.size() + 1;
-  size_t size = JSON_OBJECT_SIZE(1) + JSON_OBJECT_SIZE(numFields) +
-                numFields * 16 + numChars;
+  size_t size = JSON_OBJECT_SIZE(7) + JSON_OBJECT_SIZE(numFields) +
+                numFields * 16 + numChars + 160 + scripts->toJSONString().length();
   DynamicJsonDocument doc(size);
   JsonObject fieldData = doc.createNestedObject(PARAMETER_FIELD_DATA);
   for (auto field : fields)
@@ -847,7 +1169,38 @@ String FMDataClient::generateCreatePayload(vector<RecordField> fields)
       fieldData[field.fieldName] = field.fieldValue;
     }
   }
+  if (scripts != NULL)
+  {
+    JsonDocument js = scripts->toJSONDocument();
+    FMDataClient::mergeJson(doc.as<JsonObject>(), js.as<JsonObject>());
+  }
   log_d("Create Record payload size: %d", measureJson(doc));
   serializeJson(doc, result);
   return result;
+}
+
+/**
+   * @brief Formats the call prameters, either a Http Query String or a Json String.
+   * @see https://fmhelp.filemaker.com/docs/17/en/dataapi/#running-scripts
+   * 
+   * @param method Http Method
+   * @return String 
+   */
+String ScriptParameters::formatParmaters(String method) const
+{
+  if (method == HTTP_METHOD_GET || method == HTTP_METHOD_DELETE)
+  {
+    return this->toQueryString();
+  }
+  else if (method == HTTP_METHOD_PATCH || method == HTTP_METHOD_POST)
+  {
+    String result;
+    JsonDocument jd = this->toJSONDocument();
+    serializeJson(jd, result);
+    return result;
+  }
+  else
+  {
+    return "";
+  }
 }

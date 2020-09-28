@@ -14,6 +14,8 @@
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include <base64.h>
+#include <ESPRandom.h>
+#include <StreamString.h>
 
 #define EMPTY_STRING ""
 
@@ -34,11 +36,22 @@
 #define HEADER_CACHE_CONTROL_VALUE_NO_CACHE "no-cache"
 #define HEADER_CONTENT_LENGTH "Content-Length"
 #define HEADER_CONTENT_LENGTH_EMPTY "0"
+#define HEADER_CONTENT_DISPOSITION "Content-Disposition"
+#define HEADER_GENERIC "%s: %s"
+
+#define FORM_DATA_DISPOSITION "form-data; name=\"upload\"; filename=\"%s\""
 
 #define HTTP_METHOD_DELETE "DELETE"
-#define HTTP_BOUNDARY
+#define HTTP_METHOD_POST "POST"
+#define HTTP_METHOD_GET "POST"
+#define HTTP_METHOD_PUT "PUT"
+#define HTTP_METHOD_PATCH "PATCH"
+#define HTTP_BOUNDARY "---------Boundary-"
+
 #define MIME_TYPE_APPLICATION_JSON "application/json; charset=utf-8"
 #define MIME_TYPE_MULTIPART_FORM_DATA "multipart/form-data; boundary="
+#define MIME_TYPE_TEXT "text/plain"
+#define MIME_TYPE_CSV "text/csv"
 
 #define URL_FULL "https://%s:%d%s"
 #define URL_DATA_API_BASE_V1 "/fmi/data/v1/databases/"
@@ -65,22 +78,29 @@
 #define PARAMETER_OAUTH_REQUEST_ID "oAuthRequestId"
 #define PARAMETER_OAUTH_IDENTIFIER "oAuthIdentifier"
 #define PARAMETER_FIELD_DATA "fieldData"
+#define PARAMETER_FIELD_NAME "fieldName"
 #define PARAMETER_PORTAL_DATA "portalData"
 #define PARAMETER_DELETE_RELATED "deleteRelated"
-#define PARAMETER_OFFSET "_offser"
-#define PARAMETER_LIMIT "_limit"
+#define PARAMETER_OFFSET "offset"
+#define PARAMETER_LIMIT "limit"
 #define PARAMETER_PORTAL "portal"
 #define PARAMETER_QUERY "query"
 #define PARAMETER_SORT "sort"
+#define PARAMETER_SORT_ASCEND "ascend"
+#define PARAMETER_SORT_DESCEND "descend"
+#define PARAMETER_SORT_ORDER "sortOrder"
 #define PARAMETER_GLOBAL_FIELD "globalFields"
-#define PARAMETER_SCRIPT_NAME "sript"
-#define PARAMETER_SCRIPT_PARAMETER "sript.param"
-#define PARAMETER_SCRIPT_PRE_REQUEST_NAME "sript.prerequest"
-#define PARAMETER_SCRIPT_PRE_REQUEST_PARAMETER "sript.prerequest.param"
-#define PARAMETER_SCRIPT_PRE_SORT_NAME "sript.presort"
-#define PARAMETER_SCRIPT_PRE_SORT_PARAMETER "sript.presort.param"
+#define PARAMETER_SCRIPT_NAME "script"
+#define PARAMETER_SCRIPT_PARAMETER "script.param"
+#define PARAMETER_SCRIPT_PRE_REQUEST_NAME "script.prerequest"
+#define PARAMETER_SCRIPT_PRE_REQUEST_PARAMETER "script.prerequest.param"
+#define PARAMETER_SCRIPT_PRE_SORT_NAME "script.presort"
+#define PARAMETER_SCRIPT_PRE_SORT_PARAMETER "script.presort.param"
 #define PARAMETER_TOKEN "token"
 #define PARAMETER_BEARER "Bearer "
+#define PARAMETER_OMIT "omit"
+#define PARAMETER_OMIT_TRUE "true"
+#define PARAMETER_OMIT_FALSE "false"
 
 #define ERROR_MSG_EMPTY_DATABASE_NAME "Empty Database Name"
 #define ERROR_MSG_EMPTY_USER_NAME "Empty User Name"
@@ -212,23 +232,39 @@ enum FieldTypes
   Summary
 };
 
+class RecordSortCriteria
+{
+public:
+  RecordSortCriteria(String fieldName, SortOrder order = SortOrder::ascend);
+  SortOrder order;
+  String fieldName;
+  JsonObject toJSON(void);
+};
+
+class RecordFindCriteria
+{
+public:
+  RecordFindCriteria(String fieldName, String fieldValue = "*");
+  String fieldName;
+  String fieldValue;
+  JsonObject toJSON(void);
+};
+
 class SortCriteria
 {
 public:
-  SortCriteria(String fieldName, SortOrder order = SortOrder::ascend);
-  SortOrder Order;
-  String FieldName;
-  String toJSON(void) const;
+  SortCriteria(const vector<RecordSortCriteria *> &records);
+  vector<RecordSortCriteria *> records;
+  JsonObject toJSON(void);
 };
 
 class FindCriteria
 {
 public:
-  FindCriteria(String fieldName, String value, boolean omit = false);
-  String FieldName;
-  String Value;
-  boolean Omit;
-  String toJSON(void) const;
+  FindCriteria(const vector<RecordFindCriteria *> &records, boolean omit = false);
+  vector<RecordFindCriteria *> records;
+  boolean omit;
+  JsonObject toJSON(void);
 };
 
 class RecordField
@@ -240,18 +276,67 @@ public:
   String fieldName;
   String fieldValue;
   FieldTypes fieldType;
-  String toJSON(void) const;
+  JsonObject toJSON(void) const;
   size_t getSize();
 };
 
+/**
+ * @brief A class to store, validate and generate the script parameters acording to the request
+ * @see https://fmhelp.filemaker.com/docs/17/en/dataapi/#running-scripts
+ */
 class ScriptParameters
 {
 public:
+  /**
+   * @brief Construct a new Script Parameters object
+   * 
+   * @param name Script name
+   * @param parameter Script parameters
+   * @param preRequestScriptName Prerequest script name
+   * @param preRequestScriptParameter Prerequest script parameters
+   * @param preSortScriptName Presort script name
+   * @param preSortScriptParameter Presort script parameter
+   */
   ScriptParameters(String name = "", String parameter = "",
                    String preRequestScriptName = "", String preRequestScriptParameter = "",
                    String preSortScriptName = "", String preSortScriptParameter = "");
-  String toJSON(void) const;
+
+  /**
+  * @brief Generates de script parameters for POST and PATCH requests
+  * 
+  * @return JsonDocument 
+  */
+  JsonDocument toJSONDocument(void) const;
+
+  /**
+   * @brief Generates de script parameters for POST and PATCH requests
+   * 
+   * @return String 
+   */
+  String toJSONString(void) const;
+  /**
+   * @brief Generates de script parameters for GET and DELETE requests
+   * 
+   * @return String 
+   */
   String toQueryString(void) const;
+
+  /**
+   * @brief Formats the call prameters, either a Http Query String or a Json String.
+   * @see https://fmhelp.filemaker.com/docs/17/en/dataapi/#running-scripts
+   * 
+   * @param method Http Method
+   * @return String The resulting string
+   */
+  String formatParmaters(String method) const;
+
+private:
+  String _name;
+  String _parameter;
+  String _preRequestScriptName;
+  String _preRequestScriptParameter;
+  String _preSortScriptName;
+  String _preSortScriptParameter;
 };
 
 /**
@@ -281,6 +366,15 @@ public:
    * 
    */
   ~FMDataClient();
+
+  /**
+   * @brief Combines two jsons, if key already exists it will be overrided
+   * @see https://arduinojson.org/v6/how-to/merge-json-objects/
+   * 
+   * @param dst destination json
+   * @param src source json
+   */
+  static void mergeJson(JsonObject dst, JsonObject src);
 
   /**
    * @brief Log in to a database session
@@ -324,18 +418,20 @@ public:
    * @param database Database Name
    * @param layout Layout Name
    * @param fields List of fields with values
+   * @param scripts Scripts to be executed
    * @return String Json with result or empty string when it fails
    */
-  String createRecord(String token, String database, String layout, vector<RecordField> fields);
+  String createRecord(String token, String database, String layout, vector<RecordField> fields, ScriptParameters *scripts = NULL);
   /**
    * @brief Create a Record object
    * @see https://fmhelp.filemaker.com/docs/17/en/dataapi/#work-with-records_create-record
    * @param database Database Name
    * @param layout Layout Name
    * @param fields List of fields with values
+   * @param scripts Scripts to be executed
    * @return String Json with result or empty string when it fails
    */
-  String createRecord(String database, String layout, vector<RecordField> fields);
+  String createRecord(String database, String layout, vector<RecordField> fields, ScriptParameters *scripts = NULL);
 
   /**
    * @brief Edit a record
@@ -387,9 +483,10 @@ public:
    * @param layout 
    * @param recordId 
    * @param ranges 
+   * @param scripts
    * @return String 
    */
-  String getRecord(String token, String database, String layout, String recordId, PortalRecordRange *ranges = NULL);
+  String getRecord(String token, String database, String layout, String recordId, PortalRecordRange *ranges = NULL, ScriptParameters *scripts = NULL);
 
   /**
    * @brief Get a range of records
@@ -423,9 +520,12 @@ public:
    * @param recordId Record Identifier
    * @param fieldName Field Name
    * @param repetition Field Repetition index
+   * @param contents Stream
+   * @param name Name
+   * @param type Content type
    * @return String Json with result response or empty in case of error
    */
-  String uploadContainerData(String token, String database, String layout, String recordId, String fieldName, int repetition = 1);
+  String uploadContainerData(String token, String database, String layout, String recordId, String fieldName, int repetition, String contents, String name, String type);
 
   /**
    * @brief Upload container data
@@ -435,9 +535,12 @@ public:
    * @param recordId Record Identifier
    * @param fieldName Field Name
    * @param repetition Field Repetition index
+   * @param contents Stream
+   * @param name Name
+   * @param type Content type
    * @return String Json with result response or empty in case of error
    */
-  String uploadContainerData(String database, String layout, String recordId, String fieldName, int repetition = 1);
+  String uploadContainerData(String database, String layout, String recordId, String fieldName, int repetition, String contents, String name, String type);
 
   /**
    * @brief Perform a find request
@@ -445,11 +548,26 @@ public:
    * @param token 
    * @param database 
    * @param layout 
-   * @param findCriteria 
+   * @param findCriterias
+   * @param limit
+   * @param offset
    * @param sortCriteria 
+   * @param scripts
    * @return String 
    */
-  String performFind(String token, String database, String layout, FindCriteria *findCriteria, SortCriteria *sortCriteria);
+  String performFind(String token, String database, String layout, vector<FindCriteria *> findCriterias, int limit = 100, int offset = 0, SortCriteria *sortCriteria = NULL, ScriptParameters *scripts = NULL);
+
+  /**
+   * @brief Generates the find request payload, search criteria, sort criteria and script execution parameters
+   * @see performFind()
+   * @param findCriteria
+   * @param limit
+   * @param offset
+   * @param sortCriteria 
+   * @param scripts
+   * @return String 
+   */
+  String generateFindPayload(vector<FindCriteria *> findCriterias, int limit = 100, int offset = 0, SortCriteria *sortCriteria = NULL, ScriptParameters *scripts = NULL);
 
   /**
    * @brief Set global field values
@@ -474,6 +592,7 @@ private:
   HTTPClient _https;
   String _host;
   int _port;
+  String _id;
   const DatabaseCredentials *_credentials;
   /**
    * @brief Authentication Token
@@ -488,10 +607,11 @@ private:
   /**
    * @brief Generated the payload to create new record
    * 
-   * @param fieds List of fields
+   * @param fields List of fields
+   * @param scripts Scripts to be executed
    * @return String Filemaker response
    */
-  static String generateCreatePayload(vector<RecordField> fields);
+  static String generatePayload(vector<RecordField> fields, ScriptParameters *scripts = NULL);
 
   /**
    * @brief Generate Bearer token authorization

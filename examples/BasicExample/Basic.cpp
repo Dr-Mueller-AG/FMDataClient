@@ -128,11 +128,34 @@ void loop()
   {
     wifiConnect();
   }
+  /*
   vector<RecordField> recordFields;
   RecordField field1("field1", "data1", FieldTypes::Text);
   RecordField field2("field2", "data2", FieldTypes::Text);
   recordFields.push_back(field1);
   recordFields.push_back(field2);
-  String res = client.createRecord(client.getToken(), database, layout, recordFields);
+*/
+  ScriptParameters params("testScript", "1",
+                                                  "testScript", "2",
+                                                  "testScript", "3");
+  /*
+  String res = client.createRecord(client.getToken(), database, layout, recordFields, params);
+  
+  String res = client.uploadContainerData(database, layout, "1", "container", 1, "THis is a sample Content Bruno Silva", "data.txt", "text/plain");
+*/
+
+  vector<FindCriteria*> findCriterias;
+  vector<RecordFindCriteria*> records;
+  RecordFindCriteria fr1("field1","data11");
+  records.push_back(&fr1);
+  FindCriteria f1(records);
+  findCriterias.push_back(&f1);
+  RecordSortCriteria s1("CreationTimestamp",SortOrder::descend);
+  vector<RecordSortCriteria*> sRecords;
+  sRecords.push_back(&s1);
+  SortCriteria sort(sRecords); 
+  String res = client.performFind(client.getToken(), database, layout, findCriterias, 100, 0, &sort, &params);
+
   Serial.print(res == EMPTY_STRING ? " " : ".");
+  delay(20000);
 }

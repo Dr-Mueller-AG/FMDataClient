@@ -8,21 +8,29 @@ Filemaker Data Api client for Expressif32 boards
 
 ## Features
 
-- :bangbang: Login
+- :arrow_right: Login
   - :+1: User Database Credentials
   - :+1: External User Database Credentials
   - :x: User OAuth Credentials
   - :x: Token Management
 - :+1: Logout
-- :+1: Create Records
+- :+1: Create Record
 - :x: Edit Record
 - :x: Delete Record
 - :x: Get Record
 - :x: Get records
 - :x: Upload Container
-- :x: Find Records
+- :+1: Find Records
 - :x: Set Global Variables
-- :x: Preform Scripts by parameter
+- :arrow_right: Preform Scripts by parameter
+  - :+1: Create Record
+  - :x: Edit Record
+  - :x: Delete Record
+  - :x: Get Record
+  - :x: Get Records
+  - :x: Upload Container
+  - :+1: Find Records
+  - :x: Set Global Variables ::
 
 ---
 
