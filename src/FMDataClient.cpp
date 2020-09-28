@@ -195,7 +195,7 @@ ScriptParameters::ScriptParameters(String name, String parameter,
  * 
  * @return JsonDocument 
  */
-JsonDocument ScriptParameters::toJSONDocument(void) const
+JsonObject ScriptParameters::toJSON(void) const
 {
   String result(EMPTY_STRING);
   const size_t capacity = JSON_OBJECT_SIZE(6) + 160 + this->_name.length() + this->_parameter.length() + this->_preRequestScriptName.length() + this->_preRequestScriptParameter.length() + this->_preSortScriptName.length() + this->_preSortScriptParameter.length();
@@ -227,7 +227,7 @@ JsonDocument ScriptParameters::toJSONDocument(void) const
   }
   serializeJson(doc, result);
   log_d("Json: %s", result.c_str());
-  return doc;
+  return doc.as<JsonObject>();
 }
 
 /**
@@ -238,7 +238,7 @@ JsonDocument ScriptParameters::toJSONDocument(void) const
 String ScriptParameters::toJSONString(void) const
 {
   String result(EMPTY_STRING);
-  serializeJson(this->toJSONDocument(), result);
+  serializeJson(this->toJSON(), result);
   return result;
 }
 
@@ -971,7 +971,7 @@ JsonObject SortCriteria::toJSON(void)
     sort.add(record->toJSON());
   }
   String result;
-  serializeJsonPretty(doc,result);
+  serializeJsonPretty(doc, result);
   log_d("Sort Payload: %s", result.c_str());
   return doc.as<JsonObject>();
 }
@@ -1079,7 +1079,7 @@ String FMDataClient::generateFindPayload(vector<FindCriteria *> findCriterias, i
   }
   if (scripts != NULL)
   {
-    FMDataClient::mergeJson(doc.as<JsonObject>(), scripts->toJSONDocument().as<JsonObject>());
+    FMDataClient::mergeJson(doc.as<JsonObject>(), scripts->toJSON());
   }
   doc[PARAMETER_LIMIT] = String(limit);
   if (offset > 0)
@@ -1171,8 +1171,8 @@ String FMDataClient::generatePayload(vector<RecordField> fields, ScriptParameter
   }
   if (scripts != NULL)
   {
-    JsonDocument js = scripts->toJSONDocument();
-    FMDataClient::mergeJson(doc.as<JsonObject>(), js.as<JsonObject>());
+    JsonObject js = scripts->toJSON();
+    FMDataClient::mergeJson(doc.as<JsonObject>(), js);
   }
   log_d("Create Record payload size: %d", measureJson(doc));
   serializeJson(doc, result);
@@ -1195,7 +1195,7 @@ String ScriptParameters::formatParmaters(String method) const
   else if (method == HTTP_METHOD_PATCH || method == HTTP_METHOD_POST)
   {
     String result;
-    JsonDocument jd = this->toJSONDocument();
+    JsonObject jd = this->toJSON();
     serializeJson(jd, result);
     return result;
   }

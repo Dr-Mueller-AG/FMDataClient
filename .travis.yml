@@ -58,7 +58,6 @@ env:
 install:
   - pip install -U platformio
   - platformio update
-  - platformio lib -g install "ArduinoJson@6.14.1"
 
 script:
   - platformio ci examples/BasicExample --lib="." --board=esp32dev

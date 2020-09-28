@@ -304,9 +304,9 @@ public:
   /**
   * @brief Generates de script parameters for POST and PATCH requests
   * 
-  * @return JsonDocument 
+  * @return JsonObject 
   */
-  JsonDocument toJSONDocument(void) const;
+  JsonObject toJSON(void) const;
 
   /**
    * @brief Generates de script parameters for POST and PATCH requests
