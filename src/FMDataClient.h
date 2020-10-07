@@ -14,7 +14,6 @@
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include <base64.h>
-#include <ESPRandom.h>
 #include <StreamString.h>
 
 #define EMPTY_STRING ""
@@ -46,7 +45,7 @@
 #define HTTP_METHOD_GET "POST"
 #define HTTP_METHOD_PUT "PUT"
 #define HTTP_METHOD_PATCH "PATCH"
-#define HTTP_BOUNDARY "---------Boundary-"
+#define HTTP_BOUNDARY "ESP32-"
 
 #define MIME_TYPE_APPLICATION_JSON "application/json; charset=utf-8"
 #define MIME_TYPE_MULTIPART_FORM_DATA "multipart/form-data; boundary="
@@ -592,7 +591,7 @@ private:
   HTTPClient _https;
   String _host;
   int _port;
-  String _id;
+  String _boundaryString;
   const DatabaseCredentials *_credentials;
   /**
    * @brief Authentication Token

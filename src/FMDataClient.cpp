@@ -85,13 +85,12 @@ UserCredentials::UserCredentials(
 
 JsonObject UserCredentials::toJSON(void)
 {
-  const size_t CAPACITY = JSON_OBJECT_SIZE(4);
-  StaticJsonDocument<CAPACITY> doc;
-  JsonObject obj = doc.to<JsonObject>();
-  obj[PARAMETER_DATABASE] = this->database;
-  obj[PARAMETER_USER_NAME] = this->userName;
-  obj[PARAMETER_PASSWORD] = this->password;
-  return obj;
+  const size_t capacity = JSON_OBJECT_SIZE(4);
+  DynamicJsonDocument doc(capacity);
+  doc[PARAMETER_DATABASE] = this->database;
+  doc[PARAMETER_USER_NAME] = this->userName;
+  doc[PARAMETER_PASSWORD] = this->password;
+  return doc.as<JsonObject>();
 }
 
 OAuthUserCredentials::OAuthUserCredentials(String database, String oAuthRequestId, String oAuthId)
@@ -134,13 +133,12 @@ CredentialsType UserCredentials::getType(void) const
 
 JsonObject OAuthUserCredentials::toJSON(void)
 {
-  const size_t CAPACITY = JSON_OBJECT_SIZE(4);
-  StaticJsonDocument<CAPACITY> doc;
-  JsonObject obj = doc.to<JsonObject>();
-  obj[PARAMETER_DATABASE] = database;
-  obj[PARAMETER_OAUTH_REQUEST_ID] = this->oAuthRequestId;
-  obj[PARAMETER_OAUTH_IDENTIFIER] = this->oAuthId;
-  return obj;
+  const size_t capacity = JSON_OBJECT_SIZE(4);
+  DynamicJsonDocument doc(capacity);
+  doc[PARAMETER_DATABASE] = database;
+  doc[PARAMETER_OAUTH_REQUEST_ID] = this->oAuthRequestId;
+  doc[PARAMETER_OAUTH_IDENTIFIER] = this->oAuthId;
+  return doc.as<JsonObject>();
 }
 
 RecordField::RecordField(String fieldName, String fieldValue, FieldTypes fieldType)
@@ -225,8 +223,6 @@ JsonObject ScriptParameters::toJSON(void) const
   {
     doc[PARAMETER_SCRIPT_PRE_SORT_PARAMETER] = this->_preSortScriptParameter;
   }
-  serializeJson(doc, result);
-  log_d("Json: %s", result.c_str());
   return doc.as<JsonObject>();
 }
 
@@ -238,7 +234,8 @@ JsonObject ScriptParameters::toJSON(void) const
 String ScriptParameters::toJSONString(void) const
 {
   String result(EMPTY_STRING);
-  serializeJson(this->toJSON(), result);
+  JsonObject obj = this->toJSON();
+  serializeJson(obj, result);
   return result;
 }
 
@@ -748,10 +745,7 @@ FMDataClient::FMDataClient(
   this->_cert = cert;
   this->_port = port;
   this->_client.setCACert(cert);
-  uint8_t uuid[16];
-  ESPRandom::uuid(uuid);
-  this->_id = ESPRandom::uuidToString(uuid);
-  log_d("Random Id: %s", this->_id.c_str());
+  this->_boundaryString = base64::encode(WiFi.macAddress());
 };
 
 /**
@@ -855,7 +849,7 @@ Content-Type: text/plain
   String auth = generateAuth(this->_token.c_str());
   log_d("Authorization: %s", auth.c_str());
   String boundary = HTTP_BOUNDARY;
-  boundary.concat(this->_id);
+  boundary.concat(this->_boundaryString);
   log_d("Boundary: %s", boundary.c_str());
 
   if (!this->_https.begin(
@@ -877,7 +871,7 @@ Content-Type: text/plain
   multiPartType += boundary;
   this->_https.addHeader(HEADER_CONTENT_TYPE, multiPartType);
   StreamString payload;
-  payload.printf("%s\r\n", boundary.c_str());
+  payload.printf("--%s\r\n", boundary.c_str());
   payload.printf("%s: ", HEADER_CONTENT_DISPOSITION);
   payload.printf(FORM_DATA_DISPOSITION, name.c_str());
   payload.printf("\r\n");
@@ -885,7 +879,7 @@ Content-Type: text/plain
   payload.printf("\r\n");
   payload.printf("\r\n");
   payload.printf("%s\r\n", contents.c_str());
-  payload.printf("%s\r\n", boundary.c_str());
+  payload.printf("--%s--\r\n", boundary.c_str());
   log_d("Payload: %s", payload.c_str());
   int httpCode = this->_https.POST(payload.readString());
   const String &response = this->_https.getString();
@@ -950,7 +944,8 @@ RecordSortCriteria::RecordSortCriteria(String fieldName, SortOrder order)
 
 JsonObject RecordSortCriteria::toJSON(void)
 {
-  DynamicJsonDocument doc(200);
+  const size_t capacity = JSON_OBJECT_SIZE(2);
+  DynamicJsonDocument doc(capacity);
   doc[PARAMETER_FIELD_NAME] = this->fieldName;
   doc[PARAMETER_SORT_ORDER] = this->order == SortOrder::ascend ? PARAMETER_SORT_ASCEND : PARAMETER_SORT_DESCEND;
   return doc.as<JsonObject>();
@@ -986,7 +981,8 @@ FindCriteria::FindCriteria(const vector<RecordFindCriteria *> &records, boolean 
  */
 JsonObject FindCriteria::toJSON()
 {
-  StaticJsonDocument<200> doc;
+  const size_t capacity = JSON_OBJECT_SIZE(this->records.size());
+  DynamicJsonDocument doc(capacity);
   for (auto record : records)
   {
     doc[record->fieldName] = record->fieldValue;
@@ -1146,12 +1142,8 @@ char *stringf(const char *format, ...)
 String FMDataClient::generatePayload(vector<RecordField> fields, ScriptParameters *scripts)
 {
   String result = EMPTY_STRING;
-  size_t numChars = 0;
-  for (auto field : fields)
-    numChars += field.getSize();
   size_t numFields = fields.size() + 1;
-  size_t size = JSON_OBJECT_SIZE(7) + JSON_OBJECT_SIZE(numFields) +
-                numFields * 16 + numChars + 160 + scripts->toJSONString().length();
+  size_t size = JSON_OBJECT_SIZE(7) + JSON_OBJECT_SIZE(numFields) + 1600;
   DynamicJsonDocument doc(size);
   JsonObject fieldData = doc.createNestedObject(PARAMETER_FIELD_DATA);
   for (auto field : fields)

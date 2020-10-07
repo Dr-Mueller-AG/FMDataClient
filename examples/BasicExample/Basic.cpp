@@ -2,8 +2,22 @@
 #include "Esp.h"
 #include "FMDataClient.h"
 
-//Wifi SSID
-//Wifi PsK pass
+#ifndef MY_NET_SSID
+#error Please define WiFi Network SSID
+#endif
+
+#ifndef MY_NET_PASS
+#error Please define WiFi Network password
+#endif
+
+#ifndef MY_DB_USER
+#error Please define database user name
+#endif
+
+#ifndef MY_DB_PASS
+#error Please define database user password
+#endif
+
 // Server root CA
 const char *cert =
     "-----BEGIN CERTIFICATE-----\n"
@@ -35,50 +49,47 @@ const char *cert =
     "sPTIFwwKlhR8Cbds4cLYVdQYoKpBaXAko7nv6VrcPuuUSvC33l8Odvr7+2kDRUBQ\n"
     "7nIMpBKGgc0T0U7EPMpODdIm8QC3tKai4W56gf0wrHofx1l7\n"
     "-----END CERTIFICATE-----\n";
-const char *host = "xxxx.fmi.filemaker-cloud.com";
+
+const char *host = "drm.fmi.filemaker-cloud.com";
 const int port = 443;
-const char *ssid = "xxxx"; 
-const char *psk = "xxxx";  
-const char *database = "xxxx";
-const char *userName = "xxxx";
-const char *password = "xxxx";
-const char *layout = "xxxx";
+const char *ssid = MY_NET_SSID;
+const char *psk = MY_NET_PASS;
+const char *database = "drm_iot";
+const char *userName = MY_DB_USER;
+const char *password = MY_DB_PASS;
+const char *layout = "apm_home_monitor";
 WiFiClientSecure wifi;
 UserCredentials dC(database, userName, password);
 FMDataClient client(wifi, dC, host, cert, port);
 
-String uint64ToString(uint64_t input)
-{
-  String result = "";
-  uint8_t base = 10;
+vector<RecordField> recordFields;
+RecordField field1("label1", "*", FieldTypes::Text);
+RecordField field2("value1", "*", FieldTypes::Text);
 
-  do
-  {
-    char c = input % base;
-    input /= base;
+const size_t capacity = JSON_ARRAY_SIZE(1) + 2 * JSON_OBJECT_SIZE(2) + JSON_OBJECT_SIZE(4) + 250;
+StaticJsonDocument<capacity> doc;
+String res = "";
 
-    if (c < 10)
-      c += '0';
-    else
-      c += 'A' - 10;
-    result = c + result;
-  } while (input);
-  return result;
-}
-
-String chipid = uint64ToString(ESP.getEfuseMac());
+String chipid;
+ScriptParameters *params;
+int secs = 1;
+String sensor = "Timer";
 
 void wifiConnect()
 {
   Serial.print("Attempting to connect to SSID: ");
   Serial.println(ssid);
   // attempt to connect to Wifi network:
+  WiFi.begin(ssid, psk);
+  uint8_t counter = 0;
   while (WiFi.status() != WL_CONNECTED)
   {
-    WiFi.begin(ssid, psk);
     Serial.print(".");
     // wait 1 second for re-trying
-    delay(1000);
+    counter++;
+    delay(500);
+    if (counter > 30)
+      ESP.restart();
   }
 
   Serial.print("Connected to ");
@@ -95,31 +106,13 @@ void setup()
   //Initialize Wifi
   wifiConnect();
   delay(100);
-  Serial.printf("ID: %s", chipid.c_str());
+  chipid = WiFi.macAddress();
+  Serial.printf("ID: %s\n", chipid.c_str());
+  params = new ScriptParameters("getDeviceActions", "", "getSystemTime", chipid);
   client.logInToDatabaseSession();
-  Serial.printf("Response     logInToDatabaseSession: %s\n", client.getToken().c_str());
-  //----------------------------------------------------------------------
-  /* delay(2000);
-  vector<RecordField> fields;
-  RecordField f1("field1","12",FieldTypes::Text);
-  RecordField f2("field2","sibr", FieldTypes::Text);
-  fields.push_back(f1);
-  fields.push_back(f2);
-  res = client.createRecord(client.getToken(), database,layout,fields);
-  Serial.printf("Response               createRecord: %s\n", res.c_str()); */
-  //----------------------------------------------------------------------
-  /* delay(2000);
-  RecordField f3("field3","sibr", FieldTypes::Text);
-  fields.push_back(f3);
-  res = client.createRecord(client.getToken(), database,layout,fields);
-  Serial.printf("Response               createRecord: %s\n", res.c_str()); */
-  //----------------------------------------------------------------------
-  /* delay(2000);
-  res = client.logOutDatabaseSession();
-  Serial.printf("Response      logOutDatabaseSession: %s\n", res.c_str()); */
-  //----------------------------------------------------------------------
-  delay(2000);
-  Serial.println("--------------------------");
+  Serial.printf("    Response     logInToDatabaseSession: %s\n", client.getToken().c_str());
+  delay(100);
+  Serial.println("-------------------------------------------------------------------------------------------");
 }
 
 void loop()
@@ -128,34 +121,51 @@ void loop()
   {
     wifiConnect();
   }
-  /*
-  vector<RecordField> recordFields;
-  RecordField field1("field1", "data1", FieldTypes::Text);
-  RecordField field2("field2", "data2", FieldTypes::Text);
+  recordFields.clear();
+  field1.fieldValue = sensor;
+  field2.fieldValue = String(round(millis() / 1000));
   recordFields.push_back(field1);
   recordFields.push_back(field2);
-*/
-  ScriptParameters params("testScript", "1",
-                                                  "testScript", "2",
-                                                  "testScript", "3");
-  /*
-  String res = client.createRecord(client.getToken(), database, layout, recordFields, params);
-  
-  String res = client.uploadContainerData(database, layout, "1", "container", 1, "THis is a sample Content Bruno Silva", "data.txt", "text/plain");
-*/
+  res = client.createRecord(client.getToken(), database, layout, recordFields, params);
 
-  vector<FindCriteria*> findCriterias;
-  vector<RecordFindCriteria*> records;
-  RecordFindCriteria fr1("field1","data11");
-  records.push_back(&fr1);
-  FindCriteria f1(records);
-  findCriterias.push_back(&f1);
-  RecordSortCriteria s1("CreationTimestamp",SortOrder::descend);
-  vector<RecordSortCriteria*> sRecords;
-  sRecords.push_back(&s1);
-  SortCriteria sort(sRecords); 
-  String res = client.performFind(client.getToken(), database, layout, findCriterias, 100, 0, &sort, &params);
+  deserializeJson(doc, res);
+  JsonObject response = doc
+                            .getMember("response")
+                            .as<JsonObject>();
+  String actions = response
+                       .getMember("scriptResult")
+                       .as<String>();
+  String time = response
+                    .getMember("scriptResult.prerequest")
+                    .as<String>();
 
-  Serial.print(res == EMPTY_STRING ? " " : ".");
-  delay(20000);
+  if (response.getMember("scriptError.prerequest").as<String>().equals("0"))
+  {
+    params = new ScriptParameters("getDeviceActions", time, "getSystemTime", chipid);
+  }
+
+  Serial.printf("Timestamp: %s\n", time.c_str());
+  Serial.printf("Actions: %s\n", actions.c_str());
+
+  deserializeJson(doc, actions);
+
+  for (JsonObject actionObj : doc.as<JsonArray>())
+  {
+    String action = actionObj.getMember("action").as<String>();
+    String parameter = actionObj.getMember("parameter").as<String>();
+    if (action.equalsIgnoreCase("Set Period"))
+    {
+      secs = atoi(parameter.c_str());
+    }
+    else if (action.equalsIgnoreCase("Set Sensor"))
+    {
+      sensor = parameter;
+    }
+    else
+    {
+      Serial.printf("Unknown Action: %s\n", action.c_str());
+    }
+  }
+  Serial.println("-------------------------------------------------------------------------------------------");
+  delay(secs * 1000);
 }
