@@ -19,7 +19,7 @@ Filemaker Data Api client for Expressif32 boards
 - :x: Delete Record
 - :x: Get Record
 - :x: Get records
-- :x: Upload Container
+- :+1: Upload Container
 - :+1: Find Records
 - :x: Set Global Variables
 - :arrow_right: Preform Scripts by parameter
@@ -28,9 +28,7 @@ Filemaker Data Api client for Expressif32 boards
   - :x: Delete Record
   - :x: Get Record
   - :x: Get Records
-  - :x: Upload Container
   - :+1: Find Records
-  - :x: Set Global Variables ::
 
 ---
 

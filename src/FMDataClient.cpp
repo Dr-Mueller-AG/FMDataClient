@@ -766,15 +766,19 @@ FMDataClient::~FMDataClient(void)
  * @param dst destination json
  * @param src source json
  */
-void FMDataClient::mergeJson(JsonObject dst, JsonObject src)
+void FMDataClient::mergeJson(JsonVariant dst, JsonVariantConst src)
 {
-  String finalJson(EMPTY_STRING);
-  for (auto kvp : src)
+  if (src.is<JsonObject>())
   {
-    dst[kvp.key()] = kvp.value();
+    for (auto kvp : src.as<JsonObject>())
+    {
+      mergeJson(dst.getOrAddMember(kvp.key()), kvp.value());
+    }
   }
-  serializeJson(dst, finalJson);
-  log_d("Merged JSON: %s", finalJson.c_str());
+  else
+  {
+    dst.set(src);
+  }
 }
 
 /**
@@ -822,21 +826,6 @@ String FMDataClient::getRecords(String token, String database, String layout, So
    */
 String FMDataClient::uploadContainerData(String token, String database, String layout, String recordId, String fieldName, int repetition, String contents, String name, String type)
 {
-  /*
-POST /fmi/data/v1/databases/drm_iot/layouts/iot_tab2/records/1/containers/container/1 HTTP/1.1
-Host: drm.fmi.filemaker-cloud.com
-Authorization: Bearer e58...
-Content-Type: multipart/form-data; boundary=----WebKitFormBoundary7MA4YWxkTrZu0gW
-
-----WebKitFormBoundary7MA4YWxkTrZu0gW
-Content-Disposition: form-data; name="upload"; filename="test.txt"
-Content-Type: text/plain
-
-(data)
-----WebKitFormBoundary7MA4YWxkTrZu0gW
-
-*/
-
   String url(stringf(
       URL_CONTAINER,
       database.c_str(),
@@ -849,7 +838,7 @@ Content-Type: text/plain
   String auth = generateAuth(this->_token.c_str());
   log_d("Authorization: %s", auth.c_str());
   String boundary = HTTP_BOUNDARY;
-  boundary.concat(this->_boundaryString);
+  //boundary.concat(this->_boundaryString);
   log_d("Boundary: %s", boundary.c_str());
 
   if (!this->_https.begin(
@@ -923,37 +912,38 @@ String FMDataClient::uploadContainerData(String database, String layout, String 
   }
 }
 
-RecordFindCriteria::RecordFindCriteria(String fieldName, String fieldValue)
+FindCriteriaField::FindCriteriaField(String fieldName, String fieldValue)
 {
   this->fieldName = fieldName;
   this->fieldValue = fieldValue;
 }
 
-JsonObject RecordFindCriteria::toJSON(void)
+JsonObject FindCriteriaField::toJSON(void)
 {
   DynamicJsonDocument doc(200);
   doc[this->fieldName] = this->fieldValue;
   return doc.as<JsonObject>();
 }
 
-RecordSortCriteria::RecordSortCriteria(String fieldName, SortOrder order)
+SortCriteriaField::SortCriteriaField(String fieldName, SortOrder order)
 {
   this->fieldName = fieldName;
   this->order = order;
 }
 
-JsonObject RecordSortCriteria::toJSON(void)
+JsonObject SortCriteriaField::toJSON(void)
 {
   const size_t capacity = JSON_OBJECT_SIZE(2);
   DynamicJsonDocument doc(capacity);
-  doc[PARAMETER_FIELD_NAME] = this->fieldName;
+  doc[PARAMETER_FIELD_NAME] = this->fieldName.c_str();
   doc[PARAMETER_SORT_ORDER] = this->order == SortOrder::ascend ? PARAMETER_SORT_ASCEND : PARAMETER_SORT_DESCEND;
+  log_d("Adding field: %s with value: %s", this->fieldName.c_str(), this->order == SortOrder::ascend ? PARAMETER_SORT_ASCEND : PARAMETER_SORT_DESCEND);
   return doc.as<JsonObject>();
 }
 
-SortCriteria::SortCriteria(const vector<RecordSortCriteria *> &records)
+SortCriteria::SortCriteria(const vector<SortCriteriaField *> &records)
 {
-  this->records = records;
+  this->fields = records;
 }
 
 JsonObject SortCriteria::toJSON(void)
@@ -961,19 +951,16 @@ JsonObject SortCriteria::toJSON(void)
   const size_t capacity = JSON_ARRAY_SIZE(5) + JSON_OBJECT_SIZE(1) + 5 * JSON_OBJECT_SIZE(2);
   DynamicJsonDocument doc(capacity);
   JsonArray sort = doc.createNestedArray(PARAMETER_SORT);
-  for (auto record : this->records)
+  for (auto field : this->fields)
   {
-    sort.add(record->toJSON());
+    sort.add(field->toJSON());
   }
-  String result;
-  serializeJsonPretty(doc, result);
-  log_d("Sort Payload: %s", result.c_str());
   return doc.as<JsonObject>();
 }
 
-FindCriteria::FindCriteria(const vector<RecordFindCriteria *> &records, boolean omit)
+FindCriteria::FindCriteria(const vector<FindCriteriaField *> &fields, boolean omit)
 {
-  this->records = records;
+  this->fields = fields;
   this->omit = omit;
 }
 /**
@@ -981,18 +968,43 @@ FindCriteria::FindCriteria(const vector<RecordFindCriteria *> &records, boolean 
  */
 JsonObject FindCriteria::toJSON()
 {
-  const size_t capacity = JSON_OBJECT_SIZE(this->records.size());
+  const size_t capacity = JSON_OBJECT_SIZE(this->fields.size() + 1);
   DynamicJsonDocument doc(capacity);
-  for (auto record : records)
+  for (auto record : this->fields)
   {
-    doc[record->fieldName] = record->fieldValue;
+    doc[record->fieldName.c_str()] = record->fieldValue.c_str();
+    log_d("Adding field: %s with value: %s", record->fieldName.c_str(), record->fieldValue.c_str());
   }
   if (this->omit)
   {
     doc[PARAMETER_OMIT] = this->omit ? PARAMETER_OMIT_TRUE : PARAMETER_OMIT_FALSE;
   }
-
   return doc.as<JsonObject>();
+}
+
+/**
+ * @brief 
+ * 
+ * @param database 
+ * @param layout 
+ * @param findCriterias
+ * @param limit
+ * @param offset
+ * @param sortCriteria 
+ * @param scripts
+ * @return String 
+ */
+String FMDataClient::performFind(String database, String layout, vector<FindCriteria *> findCriterias, int limit, int offset, SortCriteria *sortCriteria, ScriptParameters *scripts)
+{
+  if (this->_token == EMPTY_STRING)
+  {
+    log_e("Error token is empty");
+    return EMPTY_STRING;
+  }
+  else
+  {
+    return this->performFind(this->_token, database, layout, findCriterias, limit, offset, sortCriteria, scripts);
+  }
 }
 
 /**
@@ -1067,7 +1079,8 @@ String FMDataClient::generateFindPayload(vector<FindCriteria *> findCriterias, i
   JsonArray query = doc.createNestedArray("query");
   for (auto findCriteria : findCriterias)
   {
-    query.add(findCriteria->toJSON());
+    boolean res = query.add(findCriteria->toJSON());
+    log_d("Array add success: %s", res ? "true" : "false");
   }
   if (sortCriteria != NULL)
   {

@@ -1,22 +1,27 @@
 #include <Arduino.h>
 #include "Esp.h"
 #include "FMDataClient.h"
+#include "ESP32_ISR_Timer.h"
+#include <WebServer.h>
 
 #ifndef MY_NET_SSID
 #error Please define WiFi Network SSID
 #endif
-
 #ifndef MY_NET_PASS
 #error Please define WiFi Network password
 #endif
-
 #ifndef MY_DB_USER
 #error Please define database user name
 #endif
-
 #ifndef MY_DB_PASS
 #error Please define database user password
 #endif
+#ifndef DEVICE_TYPE
+#define DEVICE_TYPE "ESP32_Devkitc_V4"
+#endif
+
+#define TIMER_INTERRUPT_DEBUG 1
+#define TIMER_DEFAULT_FREQ 1
 
 // Server root CA
 const char *cert =
@@ -57,25 +62,32 @@ const char *psk = MY_NET_PASS;
 const char *database = "drm_iot";
 const char *userName = MY_DB_USER;
 const char *password = MY_DB_PASS;
-const char *layout = "apm_home_monitor";
+
 WiFiClientSecure wifi;
 UserCredentials dC(database, userName, password);
 FMDataClient client(wifi, dC, host, cert, port);
+StaticJsonDocument<1024> doc;
+String chipid = "00:00:00:00:00:00";
+String lastCallTimeStamp = "0";
+//Script Parameters
+ScriptParameters *scriptParameters;
 
-vector<RecordField> recordFields;
-RecordField field1("label1", "*", FieldTypes::Text);
-RecordField field2("value1", "*", FieldTypes::Text);
+// Init ESP32_ISR_Timer
+ESP32_ISR_Timer ISR_Timer;
+// Webserver http://0.0.0.0/
+WebServer server(80);
 
-const size_t capacity = JSON_ARRAY_SIZE(1) + 2 * JSON_OBJECT_SIZE(2) + JSON_OBJECT_SIZE(4) + 250;
-StaticJsonDocument<capacity> doc;
-String res = "";
+void handleRoot()
+{
+  server.send(200, "text/plain", "hello from esp32!");
+}
 
-String chipid;
-ScriptParameters *params;
-int secs = 1;
-String sensor = "Timer";
+boolean authenticate()
+{
+  return !client.logInToDatabaseSession().equals(EMPTY_STRING);
+}
 
-void wifiConnect()
+static void wifiConnect()
 {
   Serial.print("Attempting to connect to SSID: ");
   Serial.println(ssid);
@@ -91,9 +103,41 @@ void wifiConnect()
     if (counter > 30)
       ESP.restart();
   }
+  Serial.printf("Connected to %s\n", ssid);
 
-  Serial.print("Connected to ");
-  Serial.println(ssid);
+  while (!authenticate())
+  {
+    delay(30000);
+  }
+}
+
+static boolean healthCheck()
+{
+  //Find Criteria
+  vector<FindCriteriaField *> findCreteriaFields_1;
+  vector<FindCriteriaField *> findCreteriaFields_2;
+  FindCriteriaField findCriteriaField_1("device_id", chipid);
+  FindCriteriaField findCriteriaField_2("device_type", DEVICE_TYPE);
+  FindCriteriaField findCriteriaField_3("f_modification_time_stamp", ">" + lastCallTimeStamp);
+  findCreteriaFields_1.push_back(&findCriteriaField_1);
+  findCreteriaFields_1.push_back(&findCriteriaField_3);
+  findCreteriaFields_2.push_back(&findCriteriaField_2);
+  findCreteriaFields_2.push_back(&findCriteriaField_3);
+  FindCriteria findCriteria_1(findCreteriaFields_1);
+  FindCriteria findCriteria_2(findCreteriaFields_2);
+  vector<FindCriteria *> findCriterias;
+  findCriterias.push_back(&findCriteria_1);
+  findCriterias.push_back(&findCriteria_2);
+  //Sort Criteria
+  SortCriteriaField sortCriteriaField_1("ModificationTimestamp", SortOrder::ascend);
+  vector<SortCriteriaField *> sortCriteriaFields;
+  sortCriteriaFields.push_back(&sortCriteriaField_1);
+  SortCriteria sortCriteria(sortCriteriaFields);
+
+  //Do DATA API request
+  String res = client.performFind(database, "device_actions", findCriterias, 100, 0, &sortCriteria, scriptParameters);
+  log_d("Actions: %s", res.c_str());
+  return !res.equals(EMPTY_STRING);
 }
 
 void setup()
@@ -103,15 +147,19 @@ void setup()
   delay(100);
   Serial.println("Initialization");
   delay(100);
+  //ESP32 As access point IP: 192.168.4.1
+  WiFi.mode(WIFI_MODE_APSTA);                      //Access Point mode
+  WiFi.softAP("ESPWebServer", "12345678"); //Password length minimum 8 char
   //Initialize Wifi
   wifiConnect();
   delay(100);
   chipid = WiFi.macAddress();
+  scriptParameters = new ScriptParameters("getSystemTime", "", "HealthCheck", chipid);
   Serial.printf("ID: %s\n", chipid.c_str());
-  params = new ScriptParameters("getDeviceActions", "", "getSystemTime", chipid);
-  client.logInToDatabaseSession();
-  Serial.printf("    Response     logInToDatabaseSession: %s\n", client.getToken().c_str());
-  delay(100);
+
+  server.on("/", handleRoot); //This is display page
+  server.begin();             //Start server
+  Serial.println("HTTP server started");
   Serial.println("-------------------------------------------------------------------------------------------");
 }
 
@@ -121,51 +169,12 @@ void loop()
   {
     wifiConnect();
   }
-  recordFields.clear();
-  field1.fieldValue = sensor;
-  field2.fieldValue = String(round(millis() / 1000));
-  recordFields.push_back(field1);
-  recordFields.push_back(field2);
-  res = client.createRecord(client.getToken(), database, layout, recordFields, params);
-
-  deserializeJson(doc, res);
-  JsonObject response = doc
-                            .getMember("response")
-                            .as<JsonObject>();
-  String actions = response
-                       .getMember("scriptResult")
-                       .as<String>();
-  String time = response
-                    .getMember("scriptResult.prerequest")
-                    .as<String>();
-
-  if (response.getMember("scriptError.prerequest").as<String>().equals("0"))
-  {
-    params = new ScriptParameters("getDeviceActions", time, "getSystemTime", chipid);
-  }
-
-  Serial.printf("Timestamp: %s\n", time.c_str());
-  Serial.printf("Actions: %s\n", actions.c_str());
-
-  deserializeJson(doc, actions);
-
-  for (JsonObject actionObj : doc.as<JsonArray>())
-  {
-    String action = actionObj.getMember("action").as<String>();
-    String parameter = actionObj.getMember("parameter").as<String>();
-    if (action.equalsIgnoreCase("Set Period"))
-    {
-      secs = atoi(parameter.c_str());
-    }
-    else if (action.equalsIgnoreCase("Set Sensor"))
-    {
-      sensor = parameter;
-    }
-    else
-    {
-      Serial.printf("Unknown Action: %s\n", action.c_str());
-    }
-  }
-  Serial.println("-------------------------------------------------------------------------------------------");
-  delay(secs * 1000);
+  server.handleClient();
+  delay(1);
 }
+
+/*
+    String res = client.uploadContainerData(database, "iot_tab2", "1", "container", 1, "Bruno Silva", "test_file.txt", "text/plain");
+    Serial.println("Container Upload:");
+    Serial.println(res);
+*/

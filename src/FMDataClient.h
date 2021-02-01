@@ -45,7 +45,7 @@
 #define HTTP_METHOD_GET "POST"
 #define HTTP_METHOD_PUT "PUT"
 #define HTTP_METHOD_PATCH "PATCH"
-#define HTTP_BOUNDARY "ESP32-"
+#define HTTP_BOUNDARY "----WebKitFormBoundary7MA4YWxkTrZu0gW"
 
 #define MIME_TYPE_APPLICATION_JSON "application/json; charset=utf-8"
 #define MIME_TYPE_MULTIPART_FORM_DATA "multipart/form-data; boundary="
@@ -231,19 +231,19 @@ enum FieldTypes
   Summary
 };
 
-class RecordSortCriteria
+class SortCriteriaField
 {
 public:
-  RecordSortCriteria(String fieldName, SortOrder order = SortOrder::ascend);
+  SortCriteriaField(String fieldName, SortOrder order = SortOrder::ascend);
   SortOrder order;
   String fieldName;
   JsonObject toJSON(void);
 };
 
-class RecordFindCriteria
+class FindCriteriaField
 {
 public:
-  RecordFindCriteria(String fieldName, String fieldValue = "*");
+  FindCriteriaField(String fieldName, String fieldValue = "*");
   String fieldName;
   String fieldValue;
   JsonObject toJSON(void);
@@ -252,16 +252,16 @@ public:
 class SortCriteria
 {
 public:
-  SortCriteria(const vector<RecordSortCriteria *> &records);
-  vector<RecordSortCriteria *> records;
+  SortCriteria(const vector<SortCriteriaField *> &records);
+  vector<SortCriteriaField *> fields;
   JsonObject toJSON(void);
 };
 
 class FindCriteria
 {
 public:
-  FindCriteria(const vector<RecordFindCriteria *> &records, boolean omit = false);
-  vector<RecordFindCriteria *> records;
+  FindCriteria(const vector<FindCriteriaField *> &records, boolean omit = false);
+  vector<FindCriteriaField *> fields;
   boolean omit;
   JsonObject toJSON(void);
 };
@@ -373,7 +373,7 @@ public:
    * @param dst destination json
    * @param src source json
    */
-  static void mergeJson(JsonObject dst, JsonObject src);
+  static void mergeJson(JsonVariant dst, JsonVariantConst src);
 
   /**
    * @brief Log in to a database session
@@ -540,6 +540,20 @@ public:
    * @return String Json with result response or empty in case of error
    */
   String uploadContainerData(String database, String layout, String recordId, String fieldName, int repetition, String contents, String name, String type);
+
+  /**
+   * @brief Perform a find request
+   * @see https://fmhelp.filemaker.com/docs/17/en/dataapi/#perform-a-find-request
+   * @param database 
+   * @param layout 
+   * @param findCriterias
+   * @param limit
+   * @param offset
+   * @param sortCriteria 
+   * @param scripts
+   * @return String 
+   */
+  String performFind(String database, String layout, vector<FindCriteria *> findCriterias, int limit = 100, int offset = 0, SortCriteria *sortCriteria = NULL, ScriptParameters *scripts = NULL);
 
   /**
    * @brief Perform a find request
